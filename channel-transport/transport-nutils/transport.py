@@ -7,9 +7,38 @@ import precice
 from mpi4py import MPI
 
 
+def remesh(topo, ns, lhs0):
+    """
+    """
+    tol = 1e-2
+
+    for level in range(self._ref_level):
+        smpl = topo.sample('uniform', 5)
+        ielem, criterion = smpl.eval([topo.f_index, ns.gradu > tol], lhs0=lhs0)
+        # Refine the elements for which at least one point tests true.
+        topo = topo.refined_by(np.unique(ielem[criterion]))
+
+    return topo
+
+
+def initialize_namespace():
+    ns = function.Namespace(fallback_length=2)
+    ns.x = geom
+    ns.basis = domain.basis("h-std", degree=1)  # linear finite elements
+    ns.u = "basis_n ?lhs_n"  # solution
+    ns.dudt = "basis_n (?lhs_n - ?lhs0_n) / ?dt"  # time derivative
+    ns.vbasis = gauss.basis()
+    ns.velocity_i = "vbasis_n ?velocity_ni"
+    ns.k = 0.1  # diffusivity
+    ns.xblob = 1, 1
+    ns.uinit = ".5 - .5 tanh(((x_i - xblob_i) (x_i - xblob_i) - .5) / .1)"  # blob
+
+    return ns
+
+
 def main():
 
-    print("Running utils")
+    print("Running Nutils")
 
     # define the Nutils mesh
     nx = 120
@@ -32,6 +61,7 @@ def main():
     ns.x = geom
     ns.basis = domain.basis("std", degree=1)  # linear finite elements
     ns.u = "basis_n ?lhs_n"  # solution
+    ns.gradu = "u_,i"
     ns.dudt = "basis_n (?lhs_n - ?lhs0_n) / ?dt"  # time derivative
     ns.vbasis = gauss.basis()
     ns.velocity_i = "vbasis_n ?velocity_ni"
@@ -89,6 +119,10 @@ def main():
         lhs = solver.solve_linear(
             "lhs", res, constrain=cons, arguments=dict(lhs0=lhs0, dt=dt, velocity=velocity_values)
         )
+
+        # remesh
+        remesh(topo=topo, ns=ns, lhs0=lhs)
+        ns = initialize_namespace()
 
         # do the coupling
         precice_dt = interface.advance(dt)
